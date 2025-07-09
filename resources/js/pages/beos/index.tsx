@@ -32,12 +32,7 @@ export default function Index() {
     <AppLayout breadcrumbs={breadcrumbs}>
       <Head title="Banquet Event Order" />
 
-      <div className="flex justify-between items-center mb-6 px-4">
-        <h1 className="text-2xl font-semibold">All Event</h1>
-        <Link className='m-4' href={route('beos.create')}>
-          <Button>New Assignment</Button>
-        </Link>
-      </div>
+      
 
       {flash.message && (
         <Alert className='m-4'>

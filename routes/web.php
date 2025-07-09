@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BeoController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\VenueController;
@@ -13,9 +14,7 @@ Route::get('/', function () {
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
-    })->name('dashboard');
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard.index');
 
     Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
     Route::get('customers/create', [CustomerController::class, 'create'])->name('customers.create');
@@ -52,7 +51,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('orders.status.update');
 
     Route::get('beos', [BeoController::class, 'index'])->name('beos.index');
-
     Route::get('beos/{order}/create', [BeoController::class, 'create'])->name('beos.create');
     Route::post('orders/{order}/beos', [BeoController::class, 'store'])->name('beos.store');
     Route::get('beos/{beo}', [BeoController::class, 'show'])->name('beos.show');

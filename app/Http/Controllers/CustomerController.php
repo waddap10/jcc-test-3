@@ -16,7 +16,7 @@ class CustomerController extends Controller
         return Inertia::render('customers/index', compact('customers'));
     }
 
-    /* public function create()
+    public function create()
     {
         return Inertia::render('customers/create', []);
     }
@@ -33,7 +33,7 @@ class CustomerController extends Controller
        Customer::create($request->all());
 
         return redirect()->route('customers.index')->with('message', 'Customer created successfully.');
-    } */
+    }
 
     public function edit(Customer $customer)
     {

@@ -1,143 +1,289 @@
 // resources/js/Pages/Orders/Create.tsx
-import React, { useState } from 'react'
-import { Head, useForm, usePage } from '@inertiajs/react'
+import React, { useState, useEffect } from 'react'
+import { Head, useForm, router } from '@inertiajs/react'
+import Calendar, { CalendarProps } from 'react-calendar'
+import 'react-calendar/dist/Calendar.css'
+import { isWithinInterval, parseISO, format } from 'date-fns'
 import AppLayout from '@/layouts/app-layout'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { type BreadcrumbItem } from '@/types'
 
 const breadcrumbs: BreadcrumbItem[] = [
   { title: 'Orders', href: '/orders' },
-  {
-    title: 'New Reservation',
-    href: ''
-  },
+  { title: 'Create', href: '/orders/create' },
 ]
 
-interface Department {
-  id: number
-  name: string
+type ScheduleType = 'load' | 'show' | 'unload'
+
+interface Venue { id: number; name: string }
+interface Booking {
+  venue_id: number
+  load_start: string; load_end: string
+  show_start: string; show_end: string
+  unload_start: string; unload_end: string
+}
+interface Department { id: number; name: string }
+interface BeoEntry {
+  [key: string]: number | string | undefined
+  department_id?: number
+  description?: string
 }
 
-interface PageProps {
+interface Props {
+  venues: Venue[]
+  bookings: Booking[]
   departments: Department[]
+  selectedVenue?: number
+  flash: { message?: string }
 }
 
-export default function Create() {
-  const { departments } = usePage().props as unknown as PageProps
+type FormData = {
+  venues: number[]
+
+  load_start: string
+  load_end: string
+  show_start: string
+  show_end: string
+  unload_start: string
+  unload_end: string
+
+  event_name: string
+  customer: {
+    organizer: string
+    address: string
+    contact_person: string
+    phone: string
+    email: string
+  }
+
+  beos: BeoEntry[]
+}
+
+export default function Create({
+  venues,
+  bookings,
+  departments,
+  selectedVenue,
+  flash,
+}: Props) {
   const [step, setStep] = useState(1)
 
-  const form = useForm({
-    // Step 1: schedules
-    load_start: '',
-    load_end: '',
-    show_start: '',
-    show_end: '',
-    unload_start: '',
-    unload_end: '',
-    // Step 2: event & organizer
-    event_name: '',
-    customer: {
-      organization: '',
-      address: '',
-      contact_person: '',
-      phone: '',
-      email: '',
-    },
-    // Step 3: departments
-    beos: [
-      {
-        department_id: null as number | null,
-        description: '',
-      },
-    ],
-  })
+  const { data, setData, post, processing, errors } =
+    useForm<FormData>({
+      venues: selectedVenue ? [selectedVenue] : [],
 
-  const next = () => setStep((s) => Math.min(3, s + 1))
-  const prev = () => setStep((s) => Math.max(1, s - 1))
+      load_start: '',
+      load_end: '',
+      show_start: '',
+      show_end: '',
+      unload_start: '',
+      unload_end: '',
 
-  const submit = () => {
-    form.post(route('orders.store'), {
-      onSuccess: () => {
-        // optionally reset or redirect
+      event_name: '',
+      customer: {
+        organizer: '',
+        address: '',
+        contact_person: '',
+        phone: '',
+        email: '',
       },
+
+      beos: [],
     })
-  }
 
-  const addBeo = () => {
-    form.setData('beos', [
-      ...form.data.beos,
-      { department_id: null, description: '' },
-    ])
-  }
+  // re‐fetch bookings whenever the selected venues change
+  useEffect(() => {
+    if (!data.venues.length) return
+    router.get(
+      route('orders.create'),
+      { venues: data.venues },
+      { only: ['bookings'], preserveState: true, replace: true }
+    )
+  }, [data.venues])
 
-  const removeBeo = (index: number) => {
-    form.setData(
+  // group bookings by venue
+  const bookingsMap = data.venues.reduce<Record<number, Booking[]>>(
+    (acc, vid) => {
+      acc[vid] = bookings.filter(b => b.venue_id === vid)
+      return acc
+    },
+    {}
+  )
+
+  // helper to handle each schedule’s calendar
+  const handleRangeChange =
+    (type: ScheduleType): CalendarProps['onChange'] =>
+      (value) => {
+        // first guard: must be an array of two Dates
+        if (!Array.isArray(value) || value.length < 2) return
+
+        // now TS still thinks `value` is (Date | Date[] | null),
+        // so cast it to Date[]
+        const [s, e] = value as Date[]
+
+        setData(`${type}_start`, format(s, 'yyyy-MM-dd'))
+        setData(`${type}_end`, format(e, 'yyyy-MM-dd'))
+      }
+
+  const next = () => setStep(s => Math.min(3, s + 1))
+  const back = () => setStep(s => Math.max(1, s - 1))
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    post(route('orders.store'), {
+      onSuccess: () => router.visit(route('orders.index')),
+});
+
+
+  };
+
+  const scheduleTypes: { key: ScheduleType; label: string }[] = [
+    { key: 'load', label: 'Load-In' },
+    { key: 'show', label: 'Showtime' },
+    { key: 'unload', label: 'Unload' },
+  ]
+
+  function updateBeoField(
+    idx: number,
+    field: 'department_id' | 'description',
+    value: string | number | undefined
+  ) {
+    setData(
       'beos',
-      form.data.beos.filter((_, i) => i !== index)
+      data.beos.map((entry, i) =>
+        i === idx ? { ...entry, [field]: value } : entry
+      )
     )
   }
+
 
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
       <Head title="New Reservation" />
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (step < 3) next()
-          else submit()
-        }}
-        className="space-y-6 p-4"
-      >
+      {flash.message && (
+        <Alert className="mx-4 mb-4">
+          <AlertTitle>Success</AlertTitle>
+          <AlertDescription>{flash.message}</AlertDescription>
+        </Alert>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6 px-4 py-6">
         {step === 1 && (
-          <section className="space-y-4">
-            <h2 className="text-xl font-semibold">Step 1: Schedules</h2>
+          <div className="space-y-6">
+            <h2 className="text-xl font-semibold">
+              Step 1: Venues & Schedules
+            </h2>
 
-            {([
-              { label: 'Load-in', start: 'load_start', end: 'load_end' },
-              { label: 'Show', start: 'show_start', end: 'show_end' },
-              { label: 'Unload', start: 'unload_start', end: 'unload_end' },
-            ] as { label: string; start: keyof typeof form.data; end: keyof typeof form.data }[]).map(
-              ({ label, start, end }) => (
-                <div key={label} className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium">
-                      {label} Start
-                    </label>
+            {/* Venue selectors */}
+            <div>
+              <label className="block font-medium mb-2">
+                Select Venues
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {venues.map(v => (
+                  <label key={v.id} className="inline-flex items-center">
                     <input
-                      type="date"
-                      value={String(form.data[start] ?? '')}
-                      onChange={(e) =>
-                        form.setData(start, e.target.value)
+                      type="checkbox"
+                      className="mr-2"
+                      checked={data.venues.includes(v.id)}
+                      onChange={() =>
+                        setData(
+                          'venues',
+                          data.venues.includes(v.id)
+                            ? data.venues.filter(x => x !== v.id)
+                            : [...data.venues, v.id]
+                        )
                       }
-                      className="mt-1 block w-full rounded border px-2 py-1"
                     />
+                    {v.name}
+                  </label>
+                ))}
+              </div>
+              {errors.venues && (
+                <p className="text-red-600 mt-1">{errors.venues}</p>
+              )}
+            </div>
 
+            {/* Three calendars */}
+            {data.venues.length > 0 &&
+              scheduleTypes.map(({ key, label }) => (
+                <div key={key} className="space-y-2">
+                  <p className="font-medium">{label} Window</p>
+                  <div
+                    className="grid gap-4"
+                    style={{
+                      gridTemplateColumns: `repeat(${data.venues.length},1fr)`,
+                    }}
+                  >
+                    {data.venues.map(vid => (
+                      <div key={vid} className="border rounded p-2">
+                        <p className="mb-1 text-sm font-semibold">
+                          {venues.find(x => x.id === vid)?.name}
+                        </p>
+                        <Calendar
+                          selectRange
+                          onChange={handleRangeChange(key)}
+                          value={
+                            data[`${key}_start`] && data[`${key}_end`]
+                              ? [
+                                parseISO(data[`${key}_start`]),
+                                parseISO(data[`${key}_end`]),
+                              ]
+                              : null
+                          }
+                          tileClassName={({ date, view }) => {
+                            if (view !== 'month') return
+                            return bookingsMap[vid]?.some(b => {
+                              const start = parseISO(b[`${key}_start`])
+                              const end = parseISO(b[`${key}_end`])
+                              return isWithinInterval(date, { start, end })
+                            })
+                              ? 'booked-date'
+                              : undefined
+                          }}
+                        />
+                      </div>
+                    ))}
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium">
-                      {label} End
-                    </label>
-                    <input
-                      type="date"
-                      value={String(form.data[end] ?? '')}
-                      onChange={(e) =>
-                        form.setData(end as any, e.target.value)
-                      }
-                      className="mt-1 block w-full rounded border px-2 py-1"
-                    />
-
-                  </div>
+                  {errors[`${key}_start`] && (
+                    <p className="text-red-600 text-sm">
+                      {errors[`${key}_start`]}
+                    </p>
+                  )}
+                  {errors[`${key}_end`] && (
+                    <p className="text-red-600 text-sm">
+                      {errors[`${key}_end`]}
+                    </p>
+                  )}
                 </div>
               ))}
-          </section>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={next}
+                disabled={
+                  processing ||
+                  !data.venues.length ||
+                  !data.load_start ||
+                  !data.load_end ||
+                  !data.show_start ||
+                  !data.show_end ||
+                  !data.unload_start ||
+                  !data.unload_end
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         )}
 
         {step === 2 && (
-          <section className="space-y-4">
+          <div className="space-y-4">
             <h2 className="text-xl font-semibold">
-              Step 2: Event & Organizer
+              Step 2: Event & Customer
             </h2>
 
             <div>
@@ -146,211 +292,145 @@ export default function Create() {
               </label>
               <input
                 type="text"
-                value={form.data.event_name}
-                onChange={(e) =>
-                  form.setData('event_name', e.target.value)
+                value={data.event_name}
+                onChange={e =>
+                  setData('event_name', e.target.value)
                 }
                 className="mt-1 block w-full rounded border px-2 py-1"
               />
-              {form.errors.event_name && (
+              {errors.event_name && (
                 <p className="text-red-600 text-sm">
-                  {form.errors.event_name}
+                  {errors.event_name}
                 </p>
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium">
-                Organization
-              </label>
-              <input
-                type="text"
-                value={form.data.customer.organization}
-                onChange={(e) =>
-                  form.setData('customer', {
-                    ...form.data.customer,
-                    organization: e.target.value,
-                  })
-                }
-                className="mt-1 block w-full rounded border px-2 py-1"
-              />
-
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium">
-                Address
-              </label>
-              <input
-                type="text"
-                value={form.data.customer.address}
-                onChange={(e) =>
-                  form.setData('customer', {
-                    ...form.data.customer,
-                    address: e.target.value,
-                  })
-                }
-                className="mt-1 block w-full rounded border px-2 py-1"
-              />
-
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
+            {(
+              ['organizer', 'address', 'contact_person', 'phone', 'email'] as Array<
+                keyof FormData['customer']
+              >
+            ).map((field) => (
+              <div key={field}>
                 <label className="block text-sm font-medium">
-                  Contact Person
+                  {field.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
                 </label>
                 <input
-                  type="text"
-                  value={form.data.customer.contact_person}
-                  onChange={(e) =>
-                    form.setData('customer', {
-                      ...form.data.customer,
-                      contact_person: e.target.value,
+                  type={field === 'email' ? 'email' : 'text'}
+                  value={data.customer[field]}
+                  onChange={e => {
+                    setData('customer', {
+                      ...data.customer,
+                      [field]: e.target.value,
                     })
-                  }
+                  }}
                   className="mt-1 block w-full rounded border px-2 py-1"
                 />
 
               </div>
-              <div>
-                <label className="block text-sm font-medium">
-                  Phone
-                </label>
-                <input
-                  type="text"
-                  value={form.data.customer.phone}
-                  onChange={(e) =>
-                    form.setData('customer', {
-                      ...form.data.customer,
-                      phone: e.target.value,
-                    })
-                  }
-                  className="mt-1 block w-full rounded border px-2 py-1"
-                />
+            ))}
 
-              </div>
+
+            <div className="flex justify-between pt-4">
+              <Button variant="secondary" onClick={back}>
+                Back
+              </Button>
+              <Button onClick={next}>Next</Button>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium">
-                Email
-              </label>
-              <input
-                type="email"
-                value={form.data.customer.email}
-                onChange={(e) =>
-                  form.setData('customer', {
-                    ...form.data.customer,
-                    email: e.target.value,
-                  })
-                }
-                className="mt-1 block w-full rounded border px-2 py-1"
-              />
-
-            </div>
-          </section>
+          </div>
         )}
 
         {step === 3 && (
-          <section className="space-y-4">
+          <div className="space-y-4">
             <h2 className="text-xl font-semibold">
-              Step 3: Departments & Description
+              Step 3: Department & Description
             </h2>
 
-            {form.data.beos.map((b, idx) => (
+            {data.beos.map((b, idx) => (
               <div
                 key={idx}
                 className="grid grid-cols-3 gap-4 items-end"
               >
-                <div className="col-span-1">
+                <div>
                   <label className="block text-sm font-medium">
                     Department
                   </label>
                   <select
                     value={b.department_id ?? ''}
-                    onChange={(e) => {
-                      const newBeos = [...form.data.beos]
-                      newBeos[idx] = {
-                        ...newBeos[idx],
-                        department_id: e.target.value ? Number(e.target.value) : null,
-                      }
-                      form.setData('beos', newBeos)
-                    }}
+                    onChange={e =>
+                      updateBeoField(
+                        idx,
+                        'department_id',
+                        e.target.value ? Number(e.target.value) : undefined
+                      )
+                    }
                     className="mt-1 block w-full rounded border px-2 py-1"
                   >
-                    <option value="">Select...</option>
-                    {departments.map((d) => (
+                    <option value="">Select department</option>
+                    {departments.map(d => (
                       <option key={d.id} value={d.id}>
                         {d.name}
                       </option>
                     ))}
                   </select>
-
                 </div>
 
                 <div className="col-span-2">
                   <label className="block text-sm font-medium">
-                    <input
-                      type="text"
-                      value={b.description}
-                      onChange={(e) => {
-                        const newBeos = [...form.data.beos]
-                        newBeos[idx] = {
-                          ...newBeos[idx],
-                          description: e.target.value,
-                        }
-                        form.setData('beos', newBeos)
-                      }}
-                      className="mt-1 block w-full rounded border px-2 py-1"
-                    />
-                    className="mt-1 block w-full rounded border px-2 py-1"
+                    Description
                   </label>
+                  <input
+                    type="text"
+                    value={b.description || ''}
+                    onChange={e =>
+                      updateBeoField(
+                        idx,
+                        'description',
+                        e.target.value
+                      )
+                    }
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                  />
+
 
 
                 </div>
 
-                {form.data.beos.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeBeo(idx)}
-                    className="text-red-600 hover:underline"
-                  >
-                    Remove
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setData(
+                      'beos',
+                      data.beos.filter((_, i) => i !== idx)
+                    )
+                  }
+                  className="text-red-600 hover:underline"
+                >
+                  Remove
+                </button>
               </div>
             ))}
 
             <Button
               type="button"
               variant="outline"
-              onClick={addBeo}
-              className="mt-2"
+              onClick={() =>
+                setData('beos', [
+                  ...data.beos,
+                  { vendor_id: undefined, description: '' },
+                ])
+              }
             >
               + Add Department
             </Button>
-          </section>
-        )}
 
-        <div className="flex justify-between pt-4">
-          {step > 1 && (
-            <Button variant="secondary" onClick={prev}>
-              Back
-            </Button>
-          )}
-          <div className="ml-auto">
-            {step < 3 ? (
-              <Button type="button" onClick={next}>
-                Next
+            <div className="flex justify-between pt-4">
+              <Button variant="secondary" onClick={back}>
+                Back
               </Button>
-            ) : (
-              <Button type="submit" disabled={form.processing}>
-                Submit
-              </Button>
-            )}
+              <Button disabled={processing} type="submit" className="mt-4">Create Reservations</Button>
+            </div>
           </div>
-        </div>
+        )}
       </form>
     </AppLayout>
   )

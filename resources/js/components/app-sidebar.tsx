@@ -43,11 +43,7 @@ const mainNavItems: NavItem[] = [
         href: '/calendars',
         icon: Calendar,
     },
-    {
-        title: 'Vendors',
-        href: '/vendors',
-        icon: SatelliteDish,
-    },
+    
 ];
 
 const footerNavItems: NavItem[] = [

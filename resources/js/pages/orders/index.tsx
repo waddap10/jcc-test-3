@@ -20,8 +20,13 @@ const breadcrumbs: BreadcrumbItem[] = [
   { title: 'Orders', href: '/orders' },
 ]
 
-interface Customer {
+interface Venue {
+  id: number
   name: string
+}
+
+interface Customer {
+  organizer: string
 }
 
 interface Order {
@@ -35,6 +40,7 @@ interface Order {
   unload_start?: string
   unload_end?: string
   status: number
+  venues?: Venue[]
 }
 
 interface PageProps {
@@ -55,7 +61,7 @@ export default function Index() {
 
   const handleMarkPaid = (o: Order) => {
     if (confirm(`Mark order #${o.id} as Paid?`)) {
-      patch(route('orders.update.status', o.id))
+      patch(route('orders.status.update', o.id))
     }
   }
 
@@ -97,6 +103,7 @@ export default function Index() {
               <TableHead>Show</TableHead>
               <TableHead>Unload</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Venue</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -105,7 +112,7 @@ export default function Index() {
               <TableRow key={o.id}>
                 <TableCell>{o.id}</TableCell>
                 <TableCell>{o.event_name}</TableCell>
-                <TableCell>{o.customer?.name || '—'}</TableCell>
+                <TableCell>{o.customer?.organizer || '—'}</TableCell>
 
                 <TableCell>{formatRange(o.load_start, o.load_end)}</TableCell>
                 <TableCell>{formatRange(o.show_start, o.show_end)}</TableCell>
@@ -113,12 +120,24 @@ export default function Index() {
 
                 <TableCell>
                   {o.status === 0
-                    ? 'New'
+                    ? 'New Inquiry'
                     : o.status === 1
-                    ? 'Confirmed'
-                    : 'Completed'}
+                    ? 'Sudah Konfirmasi'
+                    : 'Sudah dilaksanakan'}
                 </TableCell>
-
+                <TableCell>
+                    <div>
+                      {(o.venues?.length ?? 0) > 0 ? (
+                        <ul className="list-disc pl-5 space-y-1">
+                          {o.venues!.map(v => (
+                            <li key={v.id}>{v.name}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No venues</p>
+                      )}
+                    </div>
+                </TableCell>
                 <TableCell className="text-right space-x-2">
                   <Link href={route('orders.edit', o.id)}>
                     <Button className="bg-blue-500 hover:bg-blue-700">

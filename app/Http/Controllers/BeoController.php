@@ -21,7 +21,7 @@ class BeoController extends Controller
 
     public function show($id)
 {
-    $order = Order::with('beos.vendor.department')->findOrFail($id);
+    $order = Order::with('beos.department')->findOrFail($id);
 
 
     return Inertia::render('beos/show', [

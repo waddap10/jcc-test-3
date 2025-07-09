@@ -14,16 +14,11 @@ interface Department {
     name: string;
 }
 
-interface Vendor {
-    id: number;
-    name: string;
-    department?: Department;
-}
 
 interface Beo {
     id: number;
     description: string;
-    vendor?: Vendor;
+    department?: Department;
 }
 
 interface Order {
@@ -87,7 +82,6 @@ export default function Show() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>ID</TableHead>
-                                <TableHead>Vendor Name</TableHead>
                                 <TableHead>Department</TableHead>
                                 <TableHead>Description</TableHead>
                                 <TableHead className="text-right">Action</TableHead>
@@ -97,9 +91,9 @@ export default function Show() {
                             {assignments.map((a) => (
                                 <TableRow key={a.id}>
                                     <TableCell>{a.id}</TableCell>
-                                    <TableCell>{a.vendor?.name ?? '—'}</TableCell>
+                                    <TableCell>{a.department?.name ?? '—'}</TableCell>
 
-                                    <TableCell>{a.vendor?.department?.name ?? '—'}</TableCell>
+                                    
                                     <TableCell>{a.description}</TableCell>
                                     <TableCell className="space-x-2 text-right">
                                         <Link href={route('beos.edit', [order.id, a.id])}>

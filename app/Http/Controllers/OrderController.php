@@ -18,7 +18,7 @@ class OrderController extends Controller
     public function index()
     {
         $orders = Order::with([
-            'customer:id,name',
+            'customer:id,organizer',
             'venues:id,name'
         ])->get();
 
@@ -28,28 +28,44 @@ class OrderController extends Controller
 
     public function create(Request $request)
     {
+        // load all venues & departments
         $venues = Venue::select('id', 'name')->get();
         $departments = Department::select('id', 'name')->get();
 
-        // your existing bookings logic…
+        // figure out which venue IDs were pre‐selected
         $ids = $request->query('venues', []);
         $bookings = [];
+
         foreach ($ids as $vid) {
+            // grab every existing order that uses this venue
             $orders = Order::whereHas('venues', fn($q) => $q->where('venues.id', $vid))
-                ->get(['started_at', 'ended_at']);
+                ->get([
+                    'load_start',
+                    'load_end',
+                    'show_start',
+                    'show_end',
+                    'unload_start',
+                    'unload_end',
+                ]);
+
+            // map each order’s three windows into a single array
             foreach ($orders as $o) {
                 $bookings[] = [
                     'venue_id' => (int) $vid,
-                    'start' => $o->started_at->toDateString(),
-                    'end' => $o->ended_at->toDateString(),
+                    'load_start' => optional($o->load_start)->toDateString(),
+                    'load_end' => optional($o->load_end)->toDateString(),
+                    'show_start' => optional($o->show_start)->toDateString(),
+                    'show_end' => optional($o->show_end)->toDateString(),
+                    'unload_start' => optional($o->unload_start)->toDateString(),
+                    'unload_end' => optional($o->unload_end)->toDateString(),
                 ];
             }
         }
 
         return Inertia::render('orders/create', [
             'venues' => $venues,
-            'bookings' => $bookings,
             'departments' => $departments,
+            'bookings' => $bookings,
             'flash' => session('flash', []),
         ]);
     }
@@ -60,28 +76,33 @@ class OrderController extends Controller
     $data = $request->validated();
 
     DB::transaction(function () use ($data) {
-        // 1. Customer
+        // 1. Create customer
         $customer = Customer::create($data['customer']);
 
-        // 2. Order (with 3 windows)
-        $order = $customer->order()->create([
-            'event_name'   => $data['event_name'],
-            'load_start'   => $data['load_start'],
-            'load_end'     => $data['load_end'],
-            'show_start'   => $data['show_start'],
-            'show_end'     => $data['show_end'],
-            'unload_start' => $data['unload_start'],
-            'unload_end'   => $data['unload_end'],
-        ]);
+        // 2. Create order
+        $order = $customer
+            ->orders()
+            ->create([
+                'event_name'   => $data['event_name'],
+                'load_start'   => $data['load_start'],
+                'load_end'     => $data['load_end'],
+                'show_start'   => $data['show_start'],
+                'show_end'     => $data['show_end'],
+                'unload_start' => $data['unload_start'],
+                'unload_end'   => $data['unload_end'],
+            ]);
 
-        // 3. Venues & BEOs
-        $order->venues()->sync($data['venues']);
+        // 3. Sync venues
+        $order->venues()->sync($data['venues'] ?? []);
+
+        // 4. Prepare and create BEOs
         foreach ($data['beos'] as $b) {
+            // only create when a vendor was chosen
             if (!empty($b['department_id'])) {
                 Beo::create([
-                    'order_id'   => $order->id,
-                    'department_id'  => $b['department_id'],
-                    'description'=> $b['description'] ?? null,
+                    'order_id'    => $order->id,
+                    'department_id'   => $b['department_id'],
+                    'description' => $b['description'] ?? null,
                 ]);
             }
         }
@@ -146,42 +167,42 @@ class OrderController extends Controller
     }
 
     public function update(OrderRequest $request, Order $order)
-{
-    $data = $request->validated();
+    {
+        $data = $request->validated();
 
-    DB::transaction(function () use ($order, $data) {
-        // 1. Update customer & order fields
-        $order->customer->update($data['customer']);
+        DB::transaction(function () use ($order, $data) {
+            // 1. Update customer & order fields
+            $order->customer->update($data['customer']);
 
-        $order->update([
-            'event_name'   => $data['event_name'],
-            'load_start'   => $data['load_start'],
-            'load_end'     => $data['load_end'],
-            'show_start'   => $data['show_start'],
-            'show_end'     => $data['show_end'],
-            'unload_start' => $data['unload_start'],
-            'unload_end'   => $data['unload_end'],
-        ]);
+            $order->update([
+                'event_name' => $data['event_name'],
+                'load_start' => $data['load_start'],
+                'load_end' => $data['load_end'],
+                'show_start' => $data['show_start'],
+                'show_end' => $data['show_end'],
+                'unload_start' => $data['unload_start'],
+                'unload_end' => $data['unload_end'],
+            ]);
 
-        // 2. Sync venues
-        $order->venues()->sync($data['venues']);
-        // 3. Refresh BEOs
-        $order->beos()->delete();
-        foreach ($data['beos'] as $b) {
-            if (!empty($b['department_id'])) {
-                Beo::create([
-                    'order_id'   => $order->id,
-                    'department_id'  => $b['department_id'],
-                    'description'=> $b  ['description'] ?? null,
-                ]);
+            // 2. Sync venues
+            $order->venues()->sync($data['venues']);
+            // 3. Refresh BEOs
+            $order->beos()->delete();
+            foreach ($data['beos'] as $b) {
+                if (!empty($b['department_id'])) {
+                    Beo::create([
+                        'order_id' => $order->id,
+                        'department_id' => $b['department_id'],
+                        'description' => $b['description'] ?? null,
+                    ]);
+                }
             }
-        }
-    });
+        });
 
-    return redirect()
-        ->route('orders.index')
-        ->with('flash', ['message' => 'Reservation updated successfully.']);
-}
+        return redirect()
+            ->route('orders.index')
+            ->with('flash', ['message' => 'Reservation updated successfully.']);
+    }
 
 
 
@@ -209,29 +230,81 @@ class OrderController extends Controller
     public function updateStatus(Order $order)
     {
         // toggle or set to “wait”
-        $order->update(['status' => 'paid']);
+        $order->update(['status' => 1]);
 
         return redirect()
             ->route('orders.index')
-            ->with('flash', ['message' => "Order #{$order->id} status paid."]);
+            ->with('flash', ['message' => "Order #{$order->id} status confirm."]);
     }
 
     // app/Http/Controllers/OrderController.php
 
     public function calendar(Request $request)
-    {
-        // pull month/year from query (default to today)
-        $month = (int) $request->query('month', now()->month);
-        $year = (int) $request->query('year', now()->year);
+{
+    // 1. Determine target month/year
+    $month = (int) $request->query('month', now()->month);
+    $year  = (int) $request->query('year',  now()->year);
 
-        // return props including the month/year you clicked
-        return Inertia::render('orders/calendar', [
-            'venues' => Venue::select('id', 'name')->get(),
-            'calendarData' => $this->buildMatrix($month, $year),
-            'month' => $month,
-            'year' => $year,
-        ]);
+    // 2. Calculate the month’s date range
+    $startOfMonth = \Carbon\Carbon::create($year, $month, 1)->startOfMonth();
+    $endOfMonth   = $startOfMonth->copy()->endOfMonth();
+
+    // 3. Fetch venues once
+    $venues = Venue::select('id', 'name')->get();
+
+    // 4. Fetch all orders that have any of their three windows overlapping this month
+    $orders = Order::with('venues')
+        ->where(function ($q) use ($startOfMonth, $endOfMonth) {
+            $q->whereBetween('load_start',   [$startOfMonth, $endOfMonth])
+              ->orWhereBetween('load_end',     [$startOfMonth, $endOfMonth])
+              ->orWhereBetween('show_start',   [$startOfMonth, $endOfMonth])
+              ->orWhereBetween('show_end',     [$startOfMonth, $endOfMonth])
+              ->orWhereBetween('unload_start', [$startOfMonth, $endOfMonth])
+              ->orWhereBetween('unload_end',   [$startOfMonth, $endOfMonth]);
+        })
+        ->get();
+
+    // 5. Build a per-venue schedule matrix
+    $calendarData = [];
+    foreach ($venues as $venue) {
+        $calendarData[$venue->id] = [
+            'name'  => $venue->name,
+            'slots' => [],    // will hold all load/show/unload events
+        ];
     }
+
+    foreach ($orders as $order) {
+    foreach ($order->venues as $venue) {
+        $vid = $venue->id;
+
+        $push = function ($type, $start, $end) use (&$calendarData, $vid, $order) {
+            if ($start && $end) {
+                $calendarData[$vid]['slots'][] = [
+                    'order_id'   => $order->id,
+                    'event_name' => $order->event_name,
+                    'type'       => $type,
+                    'start'      => $start,
+                    'end'        => $end,
+                    // ← add this line:
+                    'status'     => $order->status,
+                ];
+            }
+        };
+
+        $push('load',   $order->load_start,   $order->load_end);
+        $push('show',   $order->show_start,   $order->show_end);
+        $push('unload', $order->unload_start, $order->unload_end);
+    }
+}
+
+    // 6. Render with Inertia
+    return Inertia::render('orders/calendar', [
+        'venues'       => $venues,
+        'calendarData' => $calendarData,
+        'month'        => $month,
+        'year'         => $year,
+    ]);
+}
 
     /**
      * Generate date×venue matrix for any month/year

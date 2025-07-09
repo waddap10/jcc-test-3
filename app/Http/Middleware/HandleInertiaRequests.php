@@ -51,6 +51,11 @@ class HandleInertiaRequests extends Middleware
                 'location' => $request->url(),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            'flash' => [
+                // will be null when no message is set, or the string you passed
+                'message' => $request->session()->get('message'),
+            ],
+
         ];
     }
 }

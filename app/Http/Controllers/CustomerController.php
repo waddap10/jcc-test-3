@@ -2,64 +2,56 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Customer;
+use App\Http\Requests\CustomerRequest;
 use Illuminate\Http\Request;
+use App\Models\Customer;
+use Inertia\Inertia;
 
 class CustomerController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        //
+        $customers = Customer::all();
+
+        return Inertia::render('customers/index', compact('customers'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+    /* public function create()
     {
-        //
+        return Inertia::render('customers/create', []);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        //
-    }
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255|unique:customers',
+            'phone' => 'required|string|max:20',
+            'address' => 'required|string|max:500',
+        ]);
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Customer $customer)
-    {
-        //
-    }
+       Customer::create($request->all());
 
-    /**
-     * Show the form for editing the specified resource.
-     */
+        return redirect()->route('customers.index')->with('message', 'Customer created successfully.');
+    } */
+
     public function edit(Customer $customer)
     {
-        //
+        return Inertia::render('customers/edit', compact('customer')); 
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Customer $customer)
+    public function update(CustomerRequest $request, Customer $customer)
     {
-        //
+        $data = $request->validated();
+        $customer->update($data);
+
+        return redirect()->route('customers.index')->with('message', 'Customer updated successfully.');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Customer $customer)
     {
-        //
+        $customer->delete();
+
+        return redirect()->route('customers.index')->with('message', 'Customer deleted successfully.');
     }
 }

@@ -35,7 +35,7 @@ class Order extends Model
         return $this->belongsTo(Customer::class);
     }
 
-    public function venue()
+    public function venues()
     {
         return $this->belongsToMany(Venue::class, 'order_details');
     }

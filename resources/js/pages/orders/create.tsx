@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { type BreadcrumbItem } from '@/types'
 
+
 const breadcrumbs: BreadcrumbItem[] = [
   { title: 'Orders', href: '/orders' },
   { title: 'Create', href: '/orders/create' },
@@ -103,13 +104,8 @@ export default function Create({
   }, [data.venues])
 
   // group bookings by venue
-  const bookingsMap = data.venues.reduce<Record<number, Booking[]>>(
-    (acc, vid) => {
-      acc[vid] = bookings.filter(b => b.venue_id === vid)
-      return acc
-    },
-    {}
-  )
+
+
 
   // helper to handle each schedule’s calendar
   const handleRangeChange =
@@ -133,7 +129,7 @@ export default function Create({
     e.preventDefault();
     post(route('orders.store'), {
       onSuccess: () => router.visit(route('orders.index')),
-});
+    });
 
 
   };
@@ -143,6 +139,35 @@ export default function Create({
     { key: 'show', label: 'Showtime' },
     { key: 'unload', label: 'Unload' },
   ]
+
+  const bookingsMap = bookings.reduce<Record<number, Booking[]>>((acc, b) => {
+    acc[b.venue_id] = acc[b.venue_id] || []
+    acc[b.venue_id].push(b)
+    return acc
+  }, {})
+
+  // 3) Flatten _all_ load/show/unload intervals into one map
+  const blockedMap = Object.fromEntries(
+    Object.entries(bookingsMap).map(([vid, bs]) => {
+      const intervals = bs.flatMap((b) =>
+        scheduleTypes
+          .map(({ key }) => {
+            const s = b[`${key}_start` as
+              | 'load_start'
+              | 'show_start'
+              | 'unload_start']
+            const e = b[`${key}_end` as
+              | 'load_end'
+              | 'show_end'
+              | 'unload_end']
+            if (!s || !e) return null
+            return { start: parseISO(s), end: parseISO(e) }
+          })
+          .filter((x): x is { start: Date; end: Date } => !!x)
+      )
+      return [Number(vid), intervals]
+    })
+  ) as Record<number, { start: Date; end: Date }[]>
 
   function updateBeoField(
     idx: number,
@@ -211,51 +236,60 @@ export default function Create({
               scheduleTypes.map(({ key, label }) => (
                 <div key={key} className="space-y-2">
                   <p className="font-medium">{label} Window</p>
+
                   <div
                     className="grid gap-4"
-                    style={{
-                      gridTemplateColumns: `repeat(${data.venues.length},1fr)`,
-                    }}
+                    style={{ gridTemplateColumns: `repeat(${data.venues.length},1fr)` }}
                   >
-                    {data.venues.map(vid => (
-                      <div key={vid} className="border rounded p-2">
-                        <p className="mb-1 text-sm font-semibold">
-                          {venues.find(x => x.id === vid)?.name}
-                        </p>
-                        <Calendar
-                          selectRange
-                          onChange={handleRangeChange(key)}
-                          value={
-                            data[`${key}_start`] && data[`${key}_end`]
-                              ? [
-                                parseISO(data[`${key}_start`]),
-                                parseISO(data[`${key}_end`]),
-                              ]
-                              : null
-                          }
-                          tileClassName={({ date, view }) => {
-                            if (view !== 'month') return
-                            return bookingsMap[vid]?.some(b => {
-                              const start = parseISO(b[`${key}_start`])
-                              const end = parseISO(b[`${key}_end`])
-                              return isWithinInterval(date, { start, end })
-                            })
-                              ? 'booked-date'
-                              : undefined
-                          }}
-                        />
-                      </div>
-                    ))}
+                    {data.venues.map((vid) => {
+                      const blocked = blockedMap[vid] || []
+
+                      return (
+                        <div key={vid} className="border rounded p-2">
+                          <p className="mb-1 text-sm font-semibold">
+                            {venues.find((x) => x.id === vid)?.name}
+                          </p>
+
+                          <Calendar
+                            selectRange
+                            onChange={handleRangeChange(key)}
+                            value={
+                              data[`${key}_start`] && data[`${key}_end`]
+                                ? [
+                                  parseISO(data[`${key}_start`]),
+                                  parseISO(data[`${key}_end`]),
+                                ]
+                                : null
+                            }
+
+                            // highlight any blocked date
+                            tileClassName={({ date, view }) =>
+                              view === 'month' &&
+                                blocked.some(({ start, end }) =>
+                                  isWithinInterval(date, { start, end })
+                                )
+                                ? 'booked-date'
+                                : undefined
+                            }
+
+                            // disable any blocked date
+                            tileDisabled={({ date, view }) =>
+                              view === 'month' &&
+                              blocked.some(({ start, end }) =>
+                                isWithinInterval(date, { start, end })
+                              )
+                            }
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
+
                   {errors[`${key}_start`] && (
-                    <p className="text-red-600 text-sm">
-                      {errors[`${key}_start`]}
-                    </p>
+                    <p className="text-red-600 text-sm">{errors[`${key}_start`]}</p>
                   )}
                   {errors[`${key}_end`] && (
-                    <p className="text-red-600 text-sm">
-                      {errors[`${key}_end`]}
-                    </p>
+                    <p className="text-red-600 text-sm">{errors[`${key}_end`]}</p>
                   )}
                 </div>
               ))}

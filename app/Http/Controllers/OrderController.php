@@ -126,74 +126,109 @@ class OrderController extends Controller
         // 2) which venues were originally selected
         $selected = $order->venues->pluck('id')->toArray();
 
-        // 3) gather bookings for each selected venue (excluding this order)
+        // 3) gather bookings for each selected venue & each window, excluding this order
+        $scheduleTypes = ['load', 'show', 'unload'];
         $bookings = [];
-        foreach ($selected as $vid) {
-            $past = Order::whereHas('venues', fn($q) => $q->where('venues.id', $vid))
-                ->where('id', '!=', $order->id)
-                ->get(['started_at', 'ended_at']);
 
-            foreach ($past as $o) {
-                $bookings[] = [
-                    'venue_id' => $vid,
-                    'start' => $o->started_at->toDateString(),
-                    'end' => $o->ended_at->toDateString(),
-                ];
+        foreach ($selected as $vid) {
+            $pastOrders = Order::whereHas('venues', fn($q) => $q->where('venues.id', $vid))
+                ->where('id', '!=', $order->id)
+                ->get();
+
+            foreach ($pastOrders as $po) {
+                foreach ($scheduleTypes as $type) {
+                    $start = $po->{"{$type}_start"};
+                    $end   = $po->{"{$type}_end"};
+
+                    if ($start && $end) {
+                        $bookings[] = [
+                            'venue_id'    => $vid,
+                            'load_start'  => $type === 'load'   ? $start->toDateString() : null,
+                            'load_end'    => $type === 'load'   ? $end->toDateString()   : null,
+                            'show_start'  => $type === 'show'   ? $start->toDateString() : null,
+                            'show_end'    => $type === 'show'   ? $end->toDateString()   : null,
+                            'unload_start'=> $type === 'unload' ? $start->toDateString() : null,
+                            'unload_end'  => $type === 'unload' ? $end->toDateString()   : null,
+                        ];
+                    }
+                }
             }
         }
 
-        // 4) seed your form
+        // 4) load existing BEO entries
+        $beos = $order->beos
+            ->map(fn($b) => [
+                'department_id' => $b->department_id,
+                'description'   => $b->description,
+            ])
+            ->toArray();
+
+        // 5) seed your form
         $initialData = [
-            'venues' => $selected,
-            'started_at' => $order->started_at->toDateString(),
-            'ended_at' => $order->ended_at->toDateString(),
-            'event_name' => $order->event_name,
+            'venues'      => $selected,
+
+            'load_start'  => optional($order->load_start)->toDateString(),
+            'load_end'    => optional($order->load_end)->toDateString(),
+            'show_start'  => optional($order->show_start)->toDateString(),
+            'show_end'    => optional($order->show_end)->toDateString(),
+            'unload_start'=> optional($order->unload_start)->toDateString(),
+            'unload_end'  => optional($order->unload_end)->toDateString(),
+
+            'event_name'  => $order->event_name,
             'description' => $order->description,
-            'customer' => [
-                'name' => $order->customer->name,
-                'address' => $order->customer->address,
-                'email' => $order->customer->email,
-                'phone' => $order->customer->phone,
+
+            'customer'    => [
+                'organizer'     => $order->customer->organizer,
+                'address'       => $order->customer->address,
+                'contact_person'=> $order->customer->contact_person,
+                'phone'         => $order->customer->phone,
+                'email'         => $order->customer->email,
             ],
+
+            'beos'        => $beos,
         ];
 
         return Inertia::render('orders/edit', [
-            'venues' => $venues,
-            'bookings' => $bookings,
+            'venues'      => $venues,
+            'bookings'    => $bookings,
+            'departments' => Department::select('id','name')->get(),
             'initialData' => $initialData,
-            'orderId' => $order->id,
-            'flash' => session('flash', []),
+            'orderId'     => $order->id,
+            'flash'       => session('flash', []),
         ]);
     }
 
+    // Update action
     public function update(OrderRequest $request, Order $order)
     {
         $data = $request->validated();
 
         DB::transaction(function () use ($order, $data) {
-            // 1. Update customer & order fields
+            // 1) Update customer & order fields
             $order->customer->update($data['customer']);
 
             $order->update([
-                'event_name' => $data['event_name'],
-                'load_start' => $data['load_start'],
-                'load_end' => $data['load_end'],
-                'show_start' => $data['show_start'],
-                'show_end' => $data['show_end'],
+                'event_name'   => $data['event_name'],
+                'description'  => $data['description'],
+                'load_start'   => $data['load_start'],
+                'load_end'     => $data['load_end'],
+                'show_start'   => $data['show_start'],
+                'show_end'     => $data['show_end'],
                 'unload_start' => $data['unload_start'],
-                'unload_end' => $data['unload_end'],
+                'unload_end'   => $data['unload_end'],
             ]);
 
-            // 2. Sync venues
+            // 2) Sync venues
             $order->venues()->sync($data['venues']);
-            // 3. Refresh BEOs
+
+            // 3) Refresh BEOs
             $order->beos()->delete();
             foreach ($data['beos'] as $b) {
                 if (!empty($b['department_id'])) {
                     Beo::create([
-                        'order_id' => $order->id,
+                        'order_id'      => $order->id,
                         'department_id' => $b['department_id'],
-                        'description' => $b['description'] ?? null,
+                        'description'   => $b['description'] ?? null,
                     ]);
                 }
             }
@@ -203,6 +238,7 @@ class OrderController extends Controller
             ->route('orders.index')
             ->with('flash', ['message' => 'Reservation updated successfully.']);
     }
+
 
 
 

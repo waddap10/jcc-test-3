@@ -58,24 +58,45 @@ class BeoController extends Controller
     }
 
 
-    public function edit(Beo $beo)
-    {
-        $orders = Order::orderBy('name')->pluck('name', 'id');
-        $departments = Department::orderBy('name')->pluck('name', 'id');
+    // in app/Http/Controllers/BeoController.php
 
-        return Inertia::render('beos/edit', compact('beo', 'orders', 'departments'));
+public function edit(Beo $beo)
+    {
+        // Eager‐load its order and department (only the fields we need)
+        $beo->load([
+            'order:id,event_name',
+            'department:id,name',
+        ]);
+
+        return Inertia::render('beos/edit', [
+            'beo' => [
+                'id'               => $beo->id,
+                'order_id'         => $beo->order_id,
+                'order_name'       => $beo->order->event_name,
+                'department_id'    => $beo->department_id,
+                'department_name'  => $beo->department->name,
+                'description'      => $beo->description,
+            ],
+            'flash' => ['message' => session('success')],
+        ]);
     }
 
     public function update(BeoRequest $request, Beo $beo)
-    {
-        $data = $request->validated();
+{
+    $validated = $request->validated();
 
-        $beo->update($data);
+    // Only update the description
+    $beo->update(['description' => $validated['description']]);
 
-        return redirect()
-            ->route('beos.index')
-            ->with('success', 'Assignment updated successfully.');
-    }
+    // Redirect back to the assignments‐for‐order page,
+    // using the parent order's ID instead of the BEO id:
+    return redirect()
+        ->route('beos.show', $beo->order_id)
+        ->with('success', 'Assignment updated successfully.');
+}
+
+
+
 
     public function destroy(Beo $beo)
     {

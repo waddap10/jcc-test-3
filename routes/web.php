@@ -54,8 +54,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('beos/{order}/create', [BeoController::class, 'create'])->name('beos.create');
     Route::post('orders/{order}/beos', [BeoController::class, 'store'])->name('beos.store');
     Route::get('beos/{beo}', [BeoController::class, 'show'])->name('beos.show');
-    Route::get('beos/{beo}/edit', [BeoController::class, 'edit'])->name('beos.edit');
-    Route::put('beos/{beo}', [BeoController::class, 'update'])->name('beos.update');
+    Route::get('/beos/{beo}/edit',   [BeoController::class, 'edit'])
+     ->name('beos.edit');
+
+Route::put('/beos/{beo}',        [BeoController::class, 'update'])
+     ->name('beos.update');
+
     Route::delete('beos/{beo}', [BeoController::class, 'destroy'])->name('beos.destroy');
 
     

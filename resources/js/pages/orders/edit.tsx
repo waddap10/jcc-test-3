@@ -1,8 +1,8 @@
 // resources/js/Pages/Orders/Edit.tsx
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Head, useForm, router } from '@inertiajs/react'
-import Calendar from 'react-calendar'
+import Calendar, { CalendarProps } from 'react-calendar'
 import 'react-calendar/dist/Calendar.css'
 import { isWithinInterval, parseISO, format } from 'date-fns'
 import AppLayout from '@/layouts/app-layout'
@@ -15,63 +15,136 @@ const breadcrumbs: BreadcrumbItem[] = [
   { title: 'Edit',   href: '#' },
 ]
 
-interface Venue {
-  id: number
-  name: string
-}
+type ScheduleType = 'load' | 'show' | 'unload'
 
+interface Venue { id: number; name: string }
 interface Booking {
   venue_id: number
-  start: string
-  end: string
+  load_start: string;  load_end: string
+  show_start: string;  show_end: string
+  unload_start: string;unload_end: string
+}
+interface Department { id: number; name: string }
+interface BeoEntry {
+  department_id?: number
+  description?: string
 }
 
-interface InitialData {
-  venues: number[]
-  started_at: string
-  ended_at: string
-  event_name: string
-  description: string
-  customer: {
-    name: string
-    address: string
-    email: string
-    phone: string
-  }
+interface FormData {
   [key: string]: any
+  venues: number[]
+
+  load_start: string
+  load_end: string
+  show_start: string
+  show_end: string
+  unload_start: string
+  unload_end: string
+
+  event_name: string
+  customer: {
+    organizer: string
+    address: string
+    contact_person: string
+    phone: string
+    email: string
+  }
+
+  beos: BeoEntry[]
 }
 
 interface Props {
+  orderId: number
   venues: Venue[]
   bookings: Booking[]
-  initialData: InitialData
-  orderId: number
+  departments: Department[]
+  initialData: FormData
   flash: { message?: string }
 }
 
-export default function Edit({ venues, bookings, initialData, orderId, flash }: Props) {
-  const [step, setStep] = useState(1)
+export default function Edit({
+  orderId,
+  venues,
+  bookings,
+  departments,
+  initialData,
+  flash,
+}: Props) {
+  const [step, setStep] = useState<number>(1)
 
-  const { data, setData, put, processing, errors } = useForm<InitialData>(initialData)
+  // Initialize form with existing data
+  const { data, setData, put, processing, errors } = 
+    useForm<FormData>(initialData)
 
-  // Build a map: venue_id → its bookings
-  const bookingsMap = data.venues.reduce<Record<number,Booking[]>>((acc, vid) => {
-    acc[vid] = bookings.filter(b => b.venue_id === vid)
-    return acc
-  }, {})
+  // Define the three phases
+  const scheduleTypes: { key: ScheduleType; label: string }[] = [
+    { key: 'load',   label: 'Load-In' },
+    { key: 'show',   label: 'Showtime' },
+    { key: 'unload', label: 'Unload' },
+  ]
 
-  function onDateChange(
-    value: Date | [Date | null, Date | null] | null
+  // Re-fetch bookings whenever venues change
+  useEffect(() => {
+    if (!data.venues.length) return
+    router.get(
+      route('orders.edit', orderId),
+      { venues: data.venues },
+      { only: ['bookings'], preserveState: true, replace: true }
+    )
+  }, [data.venues])
+
+  // Map venue → its bookings
+  const bookingsMap = data.venues.reduce<Record<number, Booking[]>>(
+    (acc, vid) => {
+      acc[vid] = bookings.filter(b => b.venue_id === vid)
+      return acc
+    },
+    {}
+  )
+
+  // Flatten all intervals for each venue
+  const blockedMap = Object.fromEntries(
+    Object.entries(bookingsMap).map(([vid, bs]) => {
+      const intervals = bs.flatMap((b) =>
+        scheduleTypes.map(({ key }) => {
+          const s = b[`${key}_start` as
+            | 'load_start'
+            | 'show_start'
+            | 'unload_start']
+          const e = b[`${key}_end` as
+            | 'load_end'
+            | 'show_end'
+            | 'unload_end']
+          if (!s || !e) return null
+          return { start: parseISO(s), end: parseISO(e) }
+        }).filter((x): x is { start: Date; end: Date } => !!x)
+      )
+      return [Number(vid), intervals]
+    })
+  ) as Record<number, { start: Date; end: Date }[]>
+
+  // Handler for calendar range selection
+  const handleRangeChange =
+    (type: ScheduleType): CalendarProps['onChange'] =>
+      (value) => {
+        if (!Array.isArray(value) || value.length < 2) return
+        const [s, e] = value as [Date, Date]
+        setData(`${type}_start`, format(s, 'yyyy-MM-dd'))
+        setData(`${type}_end`,   format(e, 'yyyy-MM-dd'))
+      }
+
+  function updateBeoField(
+    idx: number,
+    field: keyof BeoEntry,
+    val: number | string | undefined
   ) {
-    if (!Array.isArray(value)) return
-    const [start, end] = value
-    if (start && end) {
-      setData('started_at', format(start, 'yyyy-MM-dd'))
-      setData('ended_at',   format(end,   'yyyy-MM-dd'))
-    }
+    const newBeos = data.beos.map((b, i) =>
+      i === idx ? { ...b, [field]: val } : b
+    )
+    setData('beos', newBeos)
   }
 
-  function next() { setStep(s => Math.min(2, s + 1)) }
+  function next() { setStep(s => Math.min(3, s + 1)) }
   function back() { setStep(s => Math.max(1, s - 1)) }
 
   function submit(e: React.FormEvent) {
@@ -84,159 +157,292 @@ export default function Edit({ venues, bookings, initialData, orderId, flash }: 
       <Head title="Edit Reservation" />
 
       {flash.message && (
-        <Alert>
+        <Alert className="mb-4 mx-4">
           <AlertTitle>Success</AlertTitle>
           <AlertDescription>{flash.message}</AlertDescription>
         </Alert>
       )}
 
       <form onSubmit={submit} className="space-y-6 px-4 py-6">
+        {/* Step 1: Venue & Schedules */}
         {step === 1 && (
-          <section className="space-y-4">
-            <h2 className="text-xl font-semibold">Select Venue & Dates</h2>
+          <div className="space-y-6">
+            <h2 className="text-xl font-semibold">
+              Step 1: Venues & Schedules
+            </h2>
 
+            {/* Venue Selection */}
             <div>
-              <label className="block font-medium">Venues</label>
-              {venues.map(v => (
-                <label key={v.id} className="inline-flex items-center mr-4">
-                  <input
-                    type="checkbox"
-                    checked={data.venues.includes(v.id)}
-                    onChange={() => {
-                      const next = data.venues.includes(v.id)
-                        ? data.venues.filter(id => id !== v.id)
-                        : [...data.venues, v.id]
-                      setData('venues', next)
-                    }}
-                    className="mr-2"
-                  />
-                  {v.name}
-                </label>
-              ))}
-              {errors.venues && <p className="text-red-600">{errors.venues}</p>}
-            </div>
-
-            {data.venues.length > 0 && (
-              <div
-                className="grid gap-4"
-                style={{ gridTemplateColumns: `repeat(${data.venues.length}, minmax(0,1fr))` }}
-              >
-                {data.venues.map(vid => (
-                  <div key={vid} className="border rounded p-2">
-                    <p className="mb-2 font-medium">
-                      {venues.find(v => v.id === vid)?.name}
-                    </p>
-                    <Calendar
-                      selectRange
-                      onChange={onDateChange}
-                      value={
-                        data.started_at && data.ended_at
-                          ? [parseISO(data.started_at), parseISO(data.ended_at)]
-                          : null
-                      }
-                      tileClassName={({ date, view }) => {
-                        if (view !== 'month') return undefined
-                        const isBooked = bookingsMap[vid]?.some(b =>
-                          isWithinInterval(date, {
-                            start: parseISO(b.start),
-                            end:   parseISO(b.end),
-                          })
+              <label className="block font-medium mb-2">
+                Select Venues
+              </label>
+              <div className="flex flex-wrap gap-4">
+                {venues.map(v => (
+                  <label key={v.id} className="inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={data.venues.includes(v.id)}
+                      onChange={() =>
+                        setData(
+                          'venues',
+                          data.venues.includes(v.id)
+                            ? data.venues.filter(x => x !== v.id)
+                            : [...data.venues, v.id]
                         )
-                        return isBooked ? 'booked-date' : undefined
-                      }}
+                      }
                     />
-                  </div>
+                    {v.name}
+                  </label>
                 ))}
               </div>
-            )}
-
-            {errors.started_at && <p className="text-red-600">{errors.started_at}</p>}
-            {errors.ended_at   && <p className="text-red-600">{errors.ended_at}</p>}
-
-            <div className="flex justify-end space-x-2">
-              <Button onClick={next} disabled={processing}>Next</Button>
+              {errors.venues && (
+                <p className="text-red-600 mt-1">{errors.venues}</p>
+              )}
             </div>
-          </section>
+
+            {/* Calendars for each schedule */}
+            {data.venues.length > 0 &&
+              scheduleTypes.map(({ key, label }) => (
+                <div key={key} className="space-y-2">
+                  <p className="font-medium">{label} Window</p>
+                  <div
+                    className="grid gap-4"
+                    style={{
+                      gridTemplateColumns: `repeat(${data.venues.length},1fr)`,
+                    }}
+                  >
+                    {data.venues.map(vid => {
+                      const blocked = blockedMap[vid] || []
+                      return (
+                        <div key={vid} className="border rounded p-2">
+                          <p className="mb-1 text-sm font-semibold">
+                            {venues.find(x => x.id === vid)?.name}
+                          </p>
+                          <Calendar
+                            selectRange
+                            onChange={handleRangeChange(key)}
+                            value={
+                              data[`${key}_start`] &&
+                              data[`${key}_end`]
+                                ? [
+                                    parseISO(data[`${key}_start`]),
+                                    parseISO(data[`${key}_end`]),
+                                  ]
+                                : null
+                            }
+                            tileClassName={({ date, view }) => {
+                              if (view !== 'month') return undefined
+                              const isBooked = blocked.some(({ start, end }) =>
+                                isWithinInterval(date, { start, end })
+                              )
+                              return isBooked ? 'booked-date' : undefined
+                            }}
+                            tileDisabled={({ date, view }) => {
+                              if (view !== 'month') return false
+                              return blocked.some(({ start, end }) =>
+                                isWithinInterval(date, { start, end })
+                              )
+                            }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {errors[`${key}_start`] && (
+                    <p className="text-red-600 text-sm">
+                      {errors[`${key}_start`]}
+                    </p>
+                  )}
+                  {errors[`${key}_end`] && (
+                    <p className="text-red-600 text-sm">
+                      {errors[`${key}_end`]}
+                    </p>
+                  )}
+                </div>
+              ))}
+
+            <div className="flex justify-end">
+              <Button
+                onClick={next}
+                disabled={
+                  processing ||
+                  !data.venues.length ||
+                  !data.load_start ||
+                  !data.load_end ||
+                  !data.show_start ||
+                  !data.show_end ||
+                  !data.unload_start ||
+                  !data.unload_end
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         )}
 
+        {/* Step 2: Event & Customer */}
         {step === 2 && (
-          <section className="space-y-4">
-            <h2 className="text-xl font-semibold">Event & Customer Info</h2>
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">
+              Step 2: Event & Customer
+            </h2>
 
             <div>
-              <label className="block font-medium">Event Name</label>
+              <label className="block text-sm font-medium">
+                Event Name
+              </label>
               <input
                 type="text"
                 value={data.event_name}
-                onChange={e => setData('event_name', e.target.value)}
-                className="mt-1 block w-full border px-2 py-1"
+                onChange={e =>
+                  setData('event_name', e.target.value)
+                }
+                className="mt-1 block w-full rounded border px-2 py-1"
               />
-              {errors.event_name && <p className="text-red-600">{errors.event_name}</p>}
+              {errors.event_name && (
+                <p className="text-red-600 text-sm">
+                  {errors.event_name}
+                </p>
+              )}
             </div>
 
-            <div>
-              <label className="block font-medium">Description</label>
-              <textarea
-                value={data.description}
-                onChange={e => setData('description', e.target.value)}
-                className="mt-1 block w-full border px-2 py-1"
-              />
-              {errors.description && <p className="text-red-600">{errors.description}</p>}
+            {(
+              [
+                'organizer',
+                'address',
+                'contact_person',
+                'phone',
+                'email',
+              ] as Array<keyof FormData['customer']>
+            ).map(field => (
+              <div key={field}>
+                <label className="block text-sm font-medium">
+                  {field
+                    .replace('_', ' ')
+                    .replace(/\b\w/g, c => c.toUpperCase())}
+                </label>
+                <input
+                  type={field === 'email' ? 'email' : 'text'}
+                  value={data.customer[field]}
+                  onChange={e =>
+                    setData('customer', {
+                      ...data.customer,
+                      [field]: e.target.value,
+                    })
+                  }
+                  className="mt-1 block w-full rounded border px-2 py-1"
+                />
+              </div>
+            ))}
+
+            <div className="flex justify-between pt-4">
+              <Button variant="secondary" onClick={back}>
+                Back
+              </Button>
+              <Button onClick={next}>Next</Button>
             </div>
+          </div>
+        )}
 
-            <fieldset className="space-y-4">
-              <legend className="font-medium">Customer Details</legend>
+        {/* Step 3: Department & Description */}
+        {step === 3 && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">
+              Step 3: Department & Description
+            </h2>
 
-              <div>
-                <label className="block">Name</label>
-                <input
-                  type="text"
-                  value={data.customer.name}
-                  onChange={e => setData('customer', { ...data.customer, name: e.target.value })}
-                  className="mt-1 block w-full border px-2 py-1"
-                />
-                
+            {data.beos.map((b, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-3 gap-4 items-end"
+              >
+                <div>
+                  <label className="block text-sm font-medium">
+                    Department
+                  </label>
+                  <select
+                    value={b.department_id ?? ''}
+                    onChange={e =>
+                      updateBeoField(
+                        idx,
+                        'department_id',
+                        e.target.value
+                          ? Number(e.target.value)
+                          : undefined
+                      )
+                    }
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                  >
+                    <option value="">Select department</option>
+                    {departments.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium">
+                    Description
+                  </label>
+                  <input
+                    type="text"
+                    value={b.description || ''}
+                    onChange={e =>
+                      updateBeoField(
+                        idx,
+                        'description',
+                        e.target.value
+                      )
+                    }
+                    className="mt-1 block w-full rounded border px-2 py-1"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setData(
+                      'beos',
+                      data.beos.filter((_, i) => i !== idx)
+                    )
+                  }
+                  className="text-red-600 hover:underline"
+                >
+                  Remove
+                </button>
               </div>
+            ))}
 
-              <div>
-                <label className="block">Address</label>
-                <input
-                  type="text"
-                  value={data.customer.address}
-                  onChange={e => setData('customer', { ...data.customer, address: e.target.value })}
-                  className="mt-1 block w-full border px-2 py-1"
-                />
-                
-              </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setData('beos', [
+                  ...data.beos,
+                  { department_id: undefined, description: '' },
+                ])
+              }
+            >
+              + Add Department
+            </Button>
 
-              <div>
-                <label className="block">Email</label>
-                <input
-                  type="email"
-                  value={data.customer.email}
-                  onChange={e => setData('customer', { ...data.customer, email: e.target.value })}
-                  className="mt-1 block w-full border px-2 py-1"
-                />
-                
-              </div>
-
-              <div>
-                <label className="block">Phone</label>
-                <input
-                  type="tel"
-                  value={data.customer.phone}
-                  onChange={e => setData('customer', { ...data.customer, phone: e.target.value })}
-                  className="mt-1 block w-full border px-2 py-1"
-                />
-                
-              </div>
-            </fieldset>
-
-            <div className="flex justify-between space-x-2">
-              <Button variant="secondary" onClick={back} disabled={processing}>Back</Button>
-              <Button type="submit" disabled={processing}>Update Reservation</Button>
+            <div className="flex justify-between pt-4">
+              <Button variant="secondary" onClick={back}>
+                Back
+              </Button>
+              <Button
+                disabled={processing}
+                type="submit"
+                className="mt-4"
+              >
+                Update Reservation
+              </Button>
             </div>
-          </section>
+          </div>
         )}
       </form>
     </AppLayout>

@@ -72,6 +72,20 @@ export default function Index() {
     return `${s} – ${e}`
   }
 
+  // Map status codes to label + background color
+  const getStatusProps = (status: number) => {
+    switch (status) {
+      case 0:
+        return { label: 'New Inquiry', bgcolor: '#A5D6A7' }    // light green
+      case 1:
+        return { label: 'Sudah Konfirmasi', bgcolor: '#FFF59D' } // light yellow
+      case 2:
+        return { label: 'Sudah dilaksanakan', bgcolor: '#90CAF9' } // light blue
+      default:
+        return { label: 'Unknown', bgcolor: '#E0E0E0' }         // gray
+    }
+  }
+
   return (
     <AppLayout breadcrumbs={breadcrumbs}>
       <Head title="All Reservations" />
@@ -94,6 +108,7 @@ export default function Index() {
       {orders.length > 0 ? (
         <Table>
           <TableCaption>List of all reservations</TableCaption>
+
           <TableHeader>
             <TableRow>
               <TableHead>#</TableHead>
@@ -107,62 +122,65 @@ export default function Index() {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
-            {orders.map((o) => (
-              <TableRow key={o.id}>
-                <TableCell>{o.id}</TableCell>
-                <TableCell>{o.event_name}</TableCell>
-                <TableCell>{o.customer?.organizer || '—'}</TableCell>
+            {orders.map((o) => {
+              const { label, bgcolor } = getStatusProps(o.status)
 
-                <TableCell>{formatRange(o.load_start, o.load_end)}</TableCell>
-                <TableCell>{formatRange(o.show_start, o.show_end)}</TableCell>
-                <TableCell>{formatRange(o.unload_start, o.unload_end)}</TableCell>
+              return (
+                <TableRow key={o.id}>
+                  <TableCell>{o.id}</TableCell>
+                  <TableCell>{o.event_name}</TableCell>
+                  <TableCell>{o.customer?.organizer || '—'}</TableCell>
 
-                <TableCell>
-                  {o.status === 0
-                    ? 'New Inquiry'
-                    : o.status === 1
-                    ? 'Sudah Konfirmasi'
-                    : 'Sudah dilaksanakan'}
-                </TableCell>
-                <TableCell>
-                    <div>
-                      {(o.venues?.length ?? 0) > 0 ? (
-                        <ul className="list-disc pl-5 space-y-1">
-                          {o.venues!.map(v => (
-                            <li key={v.id}>{v.name}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p>No venues</p>
-                      )}
-                    </div>
-                </TableCell>
-                <TableCell className="text-right space-x-2">
-                  <Link href={route('orders.edit', o.id)}>
-                    <Button className="bg-blue-500 hover:bg-blue-700">
-                      Edit
-                    </Button>
-                  </Link>
-                  <Button
-                    disabled={processing}
-                    onClick={() => handleDelete(o)}
-                    className="bg-red-500 hover:bg-red-700"
-                  >
-                    Delete
-                  </Button>
-                  {o.status === 0 && (
+                  <TableCell>{formatRange(o.load_start, o.load_end)}</TableCell>
+                  <TableCell>{formatRange(o.show_start, o.show_end)}</TableCell>
+                  <TableCell>{formatRange(o.unload_start, o.unload_end)}</TableCell>
+
+                  <TableCell style={{ backgroundColor: bgcolor }}>
+                    {label}
+                  </TableCell>
+
+                  <TableCell>
+                    {(o.venues?.length ?? 0) > 0 ? (
+                      <ul className="list-disc pl-5 space-y-1">
+                        {o.venues!.map((v) => (
+                          <li key={v.id}>{v.name}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>No venues</p>
+                    )}
+                  </TableCell>
+
+                  <TableCell className="text-right space-x-2">
+                    <Link href={route('orders.edit', o.id)}>
+                      <Button className="bg-blue-500 hover:bg-blue-700">
+                        Edit
+                      </Button>
+                    </Link>
+
                     <Button
                       disabled={processing}
-                      onClick={() => handleMarkPaid(o)}
-                      className="bg-yellow-500 hover:bg-yellow-700"
+                      onClick={() => handleDelete(o)}
+                      className="bg-red-500 hover:bg-red-700"
                     >
-                      Mark Paid
+                      Delete
                     </Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
+
+                    {o.status === 0 && (
+                      <Button
+                        disabled={processing}
+                        onClick={() => handleMarkPaid(o)}
+                        className="bg-yellow-500 hover:bg-yellow-700"
+                      >
+                        Mark Paid
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       ) : (

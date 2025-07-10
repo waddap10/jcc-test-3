@@ -22,7 +22,6 @@ class BeoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'department_id' => 'required|exists:departments,id',
             'description' => 'nullable|string|max:255',
         ];
     }

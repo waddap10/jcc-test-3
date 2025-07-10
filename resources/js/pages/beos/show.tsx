@@ -96,7 +96,7 @@ export default function Show() {
                                     
                                     <TableCell>{a.description}</TableCell>
                                     <TableCell className="space-x-2 text-right">
-                                        <Link href={route('beos.edit', [order.id, a.id])}>
+                                        <Link href={route('beos.edit', a.id)}>
                                             <Button size="sm" variant="outline" className="p-1" disabled={processing}>
                                                 <Edit3 className="h-4 w-4" />
                                             </Button>
